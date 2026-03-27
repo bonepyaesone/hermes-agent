@@ -166,9 +166,35 @@ class GatewayStreamConsumer:
                         self._last_edit_time = time.monotonic()
 
                 if got_done:
-                    # Final edit without cursor
+                    # Handle overflow before final edit: if accumulated text exceeds
+                    # the safe limit, split and send as new messages.
                     if self._accumulated and self._message_id:
-                        await self._send_or_edit(self._accumulated)
+                        while len(self._accumulated) > _safe_limit:
+                            split_at = self._accumulated.rfind("\n", 0, _safe_limit)
+                            if split_at < _safe_limit // 2:
+                                split_at = _safe_limit
+                            chunk = self._accumulated[:split_at]
+                            success = await self._send_or_edit(chunk)
+                            if success:
+                                self._accumulated = self._accumulated[split_at:].lstrip("\n")
+                                self._message_id = None
+                                self._last_sent_text = ""
+                            else:
+                                # Send failed - capture remaining for fallback
+                                logger.warning(
+                                    "Final overflow send failed in thread/chat %s. "
+                                    "Remaining %d chars queued for fallback.",
+                                    self.chat_id, len(self._accumulated)
+                                )
+                                if self._failed_text is None:
+                                    self._failed_text = self._accumulated
+                                else:
+                                    self._failed_text += "\n" + self._accumulated
+                                self._accumulated = ""
+                                break
+                        # Final edit for remaining content (within limits)
+                        if self._accumulated and self._message_id:
+                            await self._send_or_edit(self._accumulated)
                     # If we have accumulated text but no message_id, send failed
                     # mid-stream. Capture remaining text for fallback delivery.
                     if self._accumulated and not self._message_id:

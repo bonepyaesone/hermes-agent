@@ -65,6 +65,7 @@ class GatewayStreamConsumer:
         self._queue: queue.Queue = queue.Queue()
         self._accumulated = ""
         self._message_id: Optional[str] = None
+        self._failed_text: Optional[str] = None
         self._already_sent = False
         self._edit_supported = True  # Disabled on first edit failure (Signal/Email/HA)
         self._last_edit_time = 0.0
@@ -156,7 +157,15 @@ class GatewayStreamConsumer:
         except Exception as e:
             logger.error("Stream consumer error: %s", e)
 
-    async def _send_or_edit(self, text: str) -> None:
+
+    @property
+    def has_undelivered_text(self) -> bool:
+        return self._failed_text is not None and len(self._failed_text.strip()) > 0
+
+    def get_remaining_text(self) -> Optional[str]:
+        return self._failed_text
+
+    async def _send_or_edit(self, text: str) -> bool:
         """Send or edit the streaming message."""
         try:
             if self._message_id is not None:

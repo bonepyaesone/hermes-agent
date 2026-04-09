@@ -5499,7 +5499,21 @@ class GatewayRunner:
         # If streaming already delivered the response, mark it so the
         # caller's send() is skipped (avoiding duplicate messages).
         _sc = stream_consumer_holder[0]
-        if _sc and _sc.already_sent and isinstance(response, dict):
+
+            # Start of Fallback Delivery (Fix for Truncation)
+            if _sc and hasattr(_sc, "has_undelivered_text") and _sc.has_undelivered_text:
+                remaining = _sc.get_remaining_text()
+                if remaining:
+                    import logging
+                    logger = logging.getLogger("hermes.gateway")
+                    logger.warning("Delivering %d chars of undelivered content", len(remaining))
+                    try:
+                        _meta = {"thread_id": source.thread_id} if source.thread_id else None
+                        await adapter.send(source.chat_id, remaining, metadata=_meta)
+                    except Exception as e:
+                        logger.error("Failed to deliver remaining content: %s", e)
+
+            if _sc and _sc.already_sent and isinstance(response, dict):
             response["already_sent"] = True
         
         return response
